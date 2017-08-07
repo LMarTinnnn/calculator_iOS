@@ -17,10 +17,15 @@ class ViewController: UIViewController {
         super.viewDidLoad()
         displayValue = 0
         screenDiscription.text = ""
+        mValue.text = ""
     }
     
     //Model
-    private var dict = ["M": 0.0]
+    private var dict: Dictionary<String, Double>? {
+        didSet {
+            mValue.text = ((dict?["M"] != nil) ? "M = \(dict!["M"]!)" : "")
+        }
+    }
     private var brain = CalculatorBrain()
     
     
@@ -41,7 +46,15 @@ class ViewController: UIViewController {
     
     @IBOutlet weak var screenDiscription: UILabel!
     
-    var userIsTyping = false
+    var userIsTyping = false {
+        didSet {
+            if userIsTyping {
+                acButton.setTitle("C", for: .normal)
+            } else {
+                acButton.setTitle("AC", for: .normal)
+            }
+        }
+    }
     
     
     var displayValue: Double { //compute properties
@@ -86,19 +99,38 @@ class ViewController: UIViewController {
     }
     
     func backSpace() {
-        print("back")
-        if screen.text!.characters.count > 1, userIsTyping {
+        if screen.text!.characters.count >= 1, userIsTyping {
             screen.text?.remove(at: (screen.text?.index(before: (screen.text?.endIndex)!))!)
+            if screen.text?.characters.count == 0 {
+                screen.text = "0"
+                userIsTyping = false
+            }
         }
     }
     
     //actions
+
+    @IBOutlet weak var acButton: UIButton!
     @IBAction func acPressed(_ sender: UIButton) {
-        displayValue = 0
-        userIsTyping = false
-        screenDiscription.text = ""
-        brain = CalculatorBrain()
+        let title = sender.currentTitle!
+        switch title {
+        case "AC":
+            displayValue = 0
+            userIsTyping = false
+            screenDiscription.text = ""
+            //new a brain
+            brain = CalculatorBrain()
+            //new a dict
+            dict = [:]
+        case "C":
+            displayValue = 0
+            userIsTyping = false
+        default:
+            break
+        }
+        
     }
+    
     
     @IBAction func digitPressed(_ sender: UIButton) {
         let digit = sender.currentTitle!
@@ -119,6 +151,9 @@ class ViewController: UIViewController {
             }
         }
     }
+    
+    @IBOutlet weak var mValue: UILabel!
+    
     @IBAction func variablePress(_ sender: UIButton) {
         if !userIsTyping {
             screen.text = "M"
@@ -128,34 +163,34 @@ class ViewController: UIViewController {
     
     @IBAction func setVariable(_ sender: UIButton) {
         if userIsTyping || displayValue == 0 {
-            dict["M"] = displayValue
+            dict = ["M": displayValue]
             let (result, _, _) = brain.evaluate(using: dict)
-            displayValue = result!
+            displayValue = result ?? Double.nan
+            userIsTyping = false
+        }
+        brain.shouldAppend = false
     }
-}
-
-
-@IBAction func performOperation(_ sender: UIButton) {
-    if screen.text == "M" {
-        brain.setOperand(variable: "M")
-        userIsTyping = false
+    
+    
+    @IBAction func performOperation(_ sender: UIButton) {
+        if screen.text == "M" {
+            brain.setOperand(variable: "M")
+            userIsTyping = false
+            
+        } else if userIsTyping ||
+            (displayValue == 0 && sender.currentTitle != "π") {
+            brain.setOperand(displayValue)
+            userIsTyping = false
+        }
         
-    } else if userIsTyping || displayValue == 0  {
-        brain.setOperand(displayValue)
-        userIsTyping = false
+        if let mathmaticalSymbol = sender.currentTitle {
+            brain.performOperation(mathmaticalSymbol)
+        }
+        
+        let (result, isPending, description) = brain.evaluate(using: dict)
+        if result != nil {
+            displayValue = result!
+        }
+        screenDiscription.text = description + (isPending ? "..." : "=")
     }
-    
-    if let mathmaticalSymbol = sender.currentTitle {
-        brain.performOperation(mathmaticalSymbol)
-    }
-    
-    if let result = brain.result { // cuz brain.result may be not set, so I shouldn't unwrap it here. Instead, use if let to check whethere it set.
-        displayValue = result
-    }
-    
-    if brain.description != "" {
-        screenDiscription.text = brain.description + (brain.resultIsPending ? "..." : "=")
-    }
-    
-}
 }

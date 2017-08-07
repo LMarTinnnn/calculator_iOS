@@ -8,15 +8,6 @@
 
 import Foundation
 
-
-
-public extension Double {
-    /// SwiftRandom extension
-    public static func random(lower: Double = 0, upper: Double = 100) -> Double {
-        return (Double(arc4random()) / 0xFFFFFFFF) * (upper - lower) + lower
-    }
-}
-
 private struct PendingBinaryOperation {
     let operand_1: Double
     let function: (Double, Double) -> Double
@@ -26,32 +17,12 @@ private struct PendingBinaryOperation {
     }
 }
 
-func doubleOperandToString (operand: Double) -> String {
-    if doubleValIsInt(operand) {
-        return String(Int(operand))
-    } else {
-        return String(operand)
-    }
-}
-
-//cuz inset will change the length of the arrya
-//the element with smaller index should be put in front of the one with larger index in the elementAndIndices array
-func inserts(elementAndIndices: [(String, Int)], into array: inout [String]) {
-    for (str, index) in elementAndIndices {
-        array.insert(str, at: index)
-    }
-    
-}
-
-
-
 struct CalculatorBrain {
-    //property
+    //public properties
     var resultIsPending: Bool = false
     var accurate = 4
-
-    var varDict: Dictionary<String, Double> = ["M": 0.0]
-    
+    var description: String?
+    var shouldAppend = true
     var result: Double? {
         get {
             if accumulator != nil {
@@ -62,35 +33,12 @@ struct CalculatorBrain {
         }
     }
     
-    var description: String {
-        get {
-            return descriptionArray.joined()
-        }
-        set {
-            return descriptionArray = [newValue]
-        }
-    }
-    
     //private property
-    private var accumulator: Double? {
-        didSet {
-            if accumulator != nil && shouldAppend {
-                descriptionArray.append(doubleOperandToString(operand: accumulator!))
-            } else if resultIsPending {
-                shouldAppend = true
-            }
-        }
-    }
-    
+    private var accumulator: Double?
     private var variable: String?
-    
     private var pendingBinaryOperation: PendingBinaryOperation?
-    
-    private var descriptionArray = [String]()
-    
     private var operationArray = [Operation]()
-    
-    private var shouldAppend = true
+    private var varDict: Dictionary<String, Double> = ["M": 0.0]
     
     private enum Operation {
         case constant(Double)
@@ -100,12 +48,14 @@ struct CalculatorBrain {
         case unaryOperation((Double) -> Double)// 一元操作符
         case binaryOperation((Double, Double) -> Double)
         case equals
+        
     }
     
     private var operations: Dictionary<String, Operation> = [
         "π": Operation.constant(Double.pi),
         "Rand": Operation.rand,
         "开方": Operation.unaryOperation(sqrt),
+        "sin": Operation.unaryOperation(sin),
         "cos": Operation.unaryOperation(cos),
         "平方": Operation.unaryOperation({ $0 * $0 }),
         "±": Operation.unaryOperation({ -$0 }),
@@ -121,42 +71,103 @@ struct CalculatorBrain {
     
     mutating func setOperand(_ Operand: Double) {
         accumulator = Operand
-        operationArray.append(.constant(Operand))
+        if shouldAppend {
+            operationArray.append(.constant(Operand))
+        }
+        shouldAppend = true
     }
     
     mutating func setOperand(variable named: String) {
         variable = named
         operationArray.append(.variable(named))
-        descriptionArray.append("M")
-        shouldAppend = false
         accumulator = 0.0
+    }
+    
+    
+    
+    func descriptionMaker(array: [String]) -> String {
+        var definedArray = [String]()
+        
+        for (index,process) in array.enumerated() {
+            switch process {
+            case "=":
+                if !isThereBracketsAtStartAndEnd(in: definedArray) {
+                    addBracketsAtStartAndEnd(array: &definedArray)
+                }
+            case "开方":
+                //判断根号和平方号的位置
+                if (array[index - 1].thisStringIsDouble != nil) {
+                    addSomethingBeforeAndAfterLastElement(
+                        before: "√(", after: ")", in: &definedArray)
+                    
+                } else {
+                    if !isThereBracketsAtStartAndEnd(in: definedArray) {
+                        addBracketsAtStartAndEnd(array: &definedArray)
+                    }
+                    definedArray.insert("√", at: 0)
+                }
+            case "平方":
+                if (array[index - 1].thisStringIsDouble != nil) {
+                    addSomethingBeforeAndAfterLastElement(
+                        before: "(", after: ")²", in: &definedArray)
+                } else {
+                    if !isThereBracketsAtStartAndEnd(in: definedArray) {
+                        addBracketsAtStartAndEnd(array: &definedArray)
+                    }
+                    definedArray.append("²")
+                }
+            case "sin", "cos":
+                if !isThereBracketsAtStartAndEnd(in: definedArray) {
+                    addBracketsAtStartAndEnd(array: &definedArray)
+                }
+                definedArray.insert(process, at: 0)
+            case "M":
+                definedArray.append("M")
+            default:
+                // if double is pure int , then use it's int value
+                //which means don't have  ".0"  as suffix
+                if let intProcess = process.pureIntegerValueAsString {
+                    definedArray.append(intProcess)
+                } else {
+                    definedArray.append(process)
+                }
+            }
+        }
+        
+        return definedArray.joined()
     }
     
     func evaluate(using variables: Dictionary<String, Double>? = nil)
         -> (result: Double?, isPending: Bool, description: String) {
-        var innerBrain = CalculatorBrain()
-        for process in operationArray {
-            switch process {
-            case .constant(let operand):
-                innerBrain.setOperand(operand)
-            case .operationSymbol(let symbol):
-                innerBrain.performOperation(symbol)
-            case .variable(let named):
-                let operand = variables?[named] ?? 0.0
-                innerBrain.setOperand(operand)
-            default:
-                break
+            var innerBrain = CalculatorBrain()
+            var descriptionArray = [String]()
+            
+            for process in operationArray {
+                switch process {
+                case .constant(let operand):
+                    innerBrain.setOperand(operand)
+                    descriptionArray.append(String(operand))
+                case .operationSymbol(let symbol):
+                    if !(symbol == "=" && descriptionArray.last == "=") {
+                        innerBrain.performOperation(symbol)
+                        descriptionArray.append(symbol)
+                    }
+                case .variable(let named):
+                    descriptionArray.append(named)
+                    let operand = variables?[named] ?? 0.0
+                    innerBrain.setOperand(operand)
+                default:
+                    break
+                }
             }
-        }
-        
-        innerBrain.performPendingBinaryOperation()
-        return (innerBrain.result, innerBrain.resultIsPending, description)
+            
+            let description = descriptionMaker(array: descriptionArray)
+            
+            return (innerBrain.result, innerBrain.resultIsPending, description)
     }
     
     mutating func performPendingBinaryOperation() {
-        shouldAppend = false
         if accumulator != nil && pendingBinaryOperation != nil {
-            inserts(elementAndIndices: [(")", descriptionArray.count), ("(", 0)], into: &descriptionArray)
             accumulator = pendingBinaryOperation?.performBinaryOperation(operand_2: accumulator!)
             pendingBinaryOperation = nil //no longer in the middle of pendingBinaryOperation
         }
@@ -168,51 +179,12 @@ struct CalculatorBrain {
             
             switch operation {
             case .constant(let value):
-                shouldAppend = false
                 accumulator = value
-                
-                // set description
-                if isPureInt(string: descriptionArray.last!) {
-                    descriptionArray.removeLast()
-                }
-                
-                descriptionArray.append(Symbol)
             case .unaryOperation(let function):
                 if accumulator != nil {
-                    // set description
-                    if !resultIsPending {
-                        
-                        inserts(elementAndIndices: [(")", descriptionArray.count),("(", 0)], into:&descriptionArray)
-                        
-                        switch Symbol {
-                        case "平方":
-                            descriptionArray.append("²")
-                        case "开方":
-                            descriptionArray.insert("√", at: 0)
-                        default:
-                            break
-                        }
-                    } else {
-                        //remove the accumulator operated by the unaryOperation
-                        if isPureInt(string: descriptionArray.last!) {
-                            descriptionArray.removeLast()
-                        }
-                        
-                        switch Symbol {
-                        case "平方":
-                            descriptionArray.append("(\(doubleOperandToString(operand: accumulator!)))²")
-                        case "开方":
-                            descriptionArray.append("√(\(doubleOperandToString(operand: accumulator!)))")
-                        default:
-                            break
-                        }
-                    }
-                    shouldAppend = false
-                    
                     // perform unary operation
                     accumulator = function(accumulator!)
                 }
-                
             case .binaryOperation(let function):
                 if accumulator != nil {
                     // perform operation first
@@ -222,11 +194,6 @@ struct CalculatorBrain {
                     pendingBinaryOperation = PendingBinaryOperation(operand_1: accumulator!, function: function)
                     accumulator = nil
                     resultIsPending = true
-                    shouldAppend = true
-                    
-                    // set the description
-                    
-                    descriptionArray.append(Symbol)
                 }
             case .rand:
                 accumulator = Double.random(lower: 0, upper: 1)
@@ -239,3 +206,40 @@ struct CalculatorBrain {
         }
     }
 }
+
+public extension Double {
+    /// SwiftRandom extension
+    public static func random(lower: Double = 0, upper: Double = 100) -> Double {
+        return (Double(arc4random()) / 0xFFFFFFFF) * (upper - lower) + lower
+    }
+}
+
+public extension String {
+    var thisStringIsDouble: Double? {
+        return Double(self)
+    }
+    
+    var pureIntegerValueAsString: String? {
+        if let double = Double(self) {
+            return (double == floor(double) ? String(describing: Int(double)) : nil)
+        }
+        
+        return nil
+    }
+}
+
+func addBracketsAtStartAndEnd(array: inout [String]) {
+    array.append(")")
+    array.insert("(", at: 0)
+}
+
+func addSomethingBeforeAndAfterLastElement(before e1: String, after e2: String = ")", in array: inout [String]) {
+    let length = array.count
+    array.insert(e1, at: length - 1)
+    array.append(e2)
+}
+
+func isThereBracketsAtStartAndEnd(in array: [String]) -> Bool {
+    return array.starts(with: ["("]) && array[array.index(before: array.endIndex)] == ")"
+}
+
